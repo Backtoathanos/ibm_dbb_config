@@ -1,0 +1,40 @@
+# DBB build workflow: run build and publish listings (CMPLST, LNKLST, CATLST, etc.) as artifacts.
+# Configure the "Run DBB build" step for your environment (DBB CLI on runner or trigger z/OS pipeline).
+name: DBB Build
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  # Path where DBB writes step logs (compile-*.log, linkEdit-*.log, etc.). Set in build or use default.
+  LOGS: logs
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run DBB build
+        id: build
+        run: |
+          echo "DBB build placeholder: replace with your build command."
+          echo "Examples:"
+          echo "  - DBB CLI: dbb build --config ... (when DBB CLI is installed on runner)"
+          echo "  - z/OS: call your pipeline API or script that runs the build on z/OS and fetches results"
+          echo "Ensure build writes listings to \$LOGS (e.g. \${{ env.LOGS }}) so they can be uploaded below."
+          mkdir -p "${{ env.LOGS }}"
+          echo "Sample listing for artifact demo" > "${{ env.LOGS }}/sample-listing.log"
+
+      - name: Upload build logs (listings)
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dbb-listings
+          path: ${{ env.LOGS }}/
+          retention-days: 30
+          if-no-files-found: ignore

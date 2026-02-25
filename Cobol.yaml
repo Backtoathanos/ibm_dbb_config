@@ -1,0 +1,194 @@
+#
+# Licensed materials - Property of IBM
+# 5655-AC5 Copyright IBM Corp. 2024, 2025
+# All rights reserved
+# US Government users restricted rights  -  Use, duplication or
+# disclosure restricted by GSA ADP schedule contract with IBM Corp.
+#
+####################################
+# Cobol language configuration
+#################################### 
+
+version: 1.0.2
+tasks:
+  # Cobol Language task
+  - language: Cobol
+
+    # source file association patterns
+    sources:
+      #- "*/Cobol/.cbl"
+      #- "*Cobol//.cbl"
+      #- "*/zOS/Cobol/.cbl"
+      #- "*/zOS/CobolDB2/.cbl"
+      #- "*/CobolDB2/.cbl"
+      #- "*/.cbl"
+      - "**.cbl" 
+      
+    # overridable variables
+    variables:
+            # Location of the language configuration YAML file for the build file being 
+      # built.  Can be overridden by file associated varaibles. 
+      # See language configuration group YAML file for additional configuration options.  
+      - name: languageConfigurationSource
+        #value: /etc/dbb/build/defaultcom.yaml
+        value: ${APP_DIR}/**/config/${FILE_NAME}.yaml
+        #select:
+          #- condition:
+              #exists: ${APP_DIR}/config/${FILE_NAME}.yaml
+           # value: ${APP_DIR}/config/${FILE_NAME}.yaml
+      # conditional variable builds compile parameters i.e CICS,SQL
+      - name: compileParms
+        #value: FLAG(I,I),LIB,OBJECT,NOADV,SSR,APOST
+        value: FLAG(I,I),LIB,OBJECT,NOADV,SSR,APOST
+        #value: ${compileParms}
+        
+        append:
+          - condition: ${IS_CICS}
+            #value: CICS,COBOL2,NOSOURCE,NOSEQ,SP
+            value: CICS
+          - condition: ${IS_SQL}
+            value: SQL
+            #value: APOST,APOSTSQL,HOST(IBMCOB),VERSION(V&C1VER.& &C1LEV),ATTACH(CAF),SOURCE
+            
+          - condition: 
+              exists: errPrefix
+            value: ADATA,EX(ADX(ELAXMGUX))
+          - condition: 
+              exists: debug
+              eval: ${debug}
+            value: TEST
+            
+      # flag to perform linkedit
+      - name: doLinkEdit
+        value: true
+        
+      # default link edit parameters
+      - name: linkEditParms
+        value: LIST,LET,MAP,XREF
+        
+      # default dependency search path for single repository build
+      - name: dependencySearchPath
+        #value: search:${WORKSPACE}/?path=${APP_DIR_NAME}/copybook/*.cpy
+        #value: search:${WORKSPACE}/?path=${APP_DIR_NAME}/Copy/*/.cpy
+        #value: search:${WORKSPACE}/?path=${APP_DIR_NAME}/*.cpy
+        value: search:${WORKSPACE}/?path=*/.cpy
+
+      # flag incating to scan the load module for static link dependencies  
+      - name: scanLoadModule
+        value: false
+        
+      # Uncomment to resolve logical files using resolveSubsystems
+      # - name: subsystemSearchPath
+      #   value: ${dependencySearchPath}
+
+      # Processor type for override configs (e.g. VCBL6, VCBL, VCOB6). Override in config/${FILE_NAME}.yaml.
+      - name: processorName
+        value: ""
+
+    # datasets that need to be created / validated for this language configuration
+    datasets:
+      - name: ${HLQ}.COBOL
+        options: cyl space(1,1) lrecl(80) dsorg(PO) recfm(F,B) dsntype(library)
+      - name: ${HLQ}.COPY
+        options: cyl space(1,1) lrecl(80) dsorg(PO) recfm(F,B) dsntype(library)
+      - name: ${HLQ}.BMS.COPY
+        options: cyl space(1,1) lrecl(80) dsorg(PO) recfm(F,B) dsntype(library)
+      - name: ${HLQ}.COBOL.DBRM
+        options: cyl space(1,1) lrecl(80) dsorg(PO) recfm(F,B) dsntype(library)
+      - name: ${HLQ}.COBOL.OBJ
+        options: cyl space(1,1) lrecl(80) dsorg(PO) recfm(F,B) dsntype(library)
+      - name: ${HLQ}.COBOL.LOAD
+        options: cyl space(1,1) dsorg(PO) recfm(U) blksize(32760) dsntype(library)
+
+    # list of steps to execute for each program processed by this language configuration
+    # Compile and linkEdit SYSPRINT logs (below) are the listings; save by archiving ${LOGS} in CI (e.g. GitHub Actions artifacts).
+    steps:
+         # Load language configuration overrides from YAML files.
+      # This step MUST be the first step defined.
+      # LanguageConfiguration.groovy requires that variable 'languageConfigurationSource' 
+      # must be set above.
+      #- step: LanguageConfiguration
+        #type: task
+        #script: groovy/LanguageConfiguration.groovy
+      #- step: dynamic
+      #  type: task
+      #  script: groovy/dynamic.groovy
+        
+      # Copy build file and dependency files to data sets
+      - step: copySrc
+        type: copy
+        target: //'${HLQ}.COBOL(${MEMBER})'
+        dependencyCopy:
+          - search: ${dependencySearchPath}
+            mappings:
+              - source: "*/"
+                dataset: ${HLQ}.COPY
+                
+      # COBOL compile step          
+      - step: compile
+        type: mvs
+        pgm: IGYCRCTL
+        parm: ${compileParms}
+        maxRC: 4
+        dds:
+          - { name: "SYSIN", dsn: "${HLQ}.COBOL(${MEMBER})", options: "shr", input: true }
+          - { name: "SYSLIN", dsn: "${HLQ}.COBOL.OBJ(${MEMBER})", options: "shr", output: true }
+          - { name: "TASKLIB", dsn: "${SIGYCOMP}", options: "shr" }
+          - {                  dsn: "${SDFHLOAD}", condition: "${IS_CICS}", options: "shr" }
+          - {                 dsn: "${SDSNLOAD}", condition: "${IS_SQL}", options: "shr" }
+          - {                 dsn: "${SFELLOAD}", condition: { exists: "SFELLOAD" }, options: "shr" }
+          - { name: "SYSPRINT", log: "${LOGS}/${STEP}-${FILE_NAME}.log", logEncoding: "${LOG_ENCODING}", options: "cyl space(5,5) unit(vio) blksize(133) lrecl(133) recfm(f,b) new" }
+          - { name: "SYSMDECK", options: "cyl space(5,5) unit(vio) blksize(80) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT1", options: "cyl space(5,5) unit(vio) blksize(80) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT2", options: "cyl space(5,5) unit(vio) blksize(80) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT3", options: "cyl space(5,5) unit(vio) blksize(80) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT4", options: "cyl space(5,5) unit(vio) blksize(80) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT5", options: "cyl space(5,5) unit(vio) blksize(80) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT6", options: "cyl space(5,5) unit(vio) blksize(80) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT7", options: "cyl space(5,5) unit(vio) blksize(80) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT8", options: "cyl space(5,5) unit(vio) blksize(80) lrecl(80) recfm(f,b) new"}
+          - { name: "SYSUT9", options: "cyl space(5,5) unit(vio) blksize(80) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT10", options: "cyl space(5,5) unit(vio) blksize(80) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT11", options: "cyl space(5,5) unit(vio) blksize(80) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT12", options: "cyl space(5,5) unit(vio) blksize(80) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT13", options: "cyl space(5,5) unit(vio) blksize(80) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT14", options: "cyl space(5,5) unit(vio) blksize(80) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT15", options: "cyl space(5,5) unit(vio) blksize(80) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT16", options: "cyl space(5,5) unit(vio) blksize(80) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT17", options: "cyl space(5,5) unit(vio) blksize(80) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSLIB", dsn: "${HLQ}.COPY", options: "shr" }
+          - {                 dsn: "VLM.C1.PRODCOPY", options: "shr" }
+          - {                 dsn: "VLM.C1B2.PRODCOPY", options: "shr" }
+          - {                 dsn: "VLM.C1PA.PRODCOPY", options: "shr" }
+          - {                 dsn: "VLM.C1.SHARE.PRODCOPY", options: "shr" }
+          - {                 dsn: "VLM.C1.CENTRL.PRODCOPY", options: "shr" }
+          - {                 dsn: "VLM.C1DB.CENTRL.PRODCOPY", options: "shr" }
+          #- {                 dsn: "${HLQ}.BMS.COPY", options: "shr" }
+          #- {                 dsn: "${HLQ}.BMS.COPY", options: "shr" }
+          #- {                 dsn: "${HLQ}.BMS.COPY", options: "shr" }
+          #- {                 dsn: "${HLQ}.BMS.COPY", options: "shr" }
+          - {                 dsn: "${SDFHCOB}", condition: "${IS_CICS}", options: "shr" }
+          - {                 dsn: "${SCSQCOBC}", condition: "${IS_MQ}", options: "shr" }
+          - { name: "DBRMLIB", dsn: "${HLQ}.COBOL.DBRM(${MEMBER})", condition: "${IS_SQL}", options: "shr", output: true, deployType: "DBRM" }          
+          - { name: "SYSADATA", condition: { exists: "errPrefix" }, options: "DUMMY" }
+          - { name: "SYSXMLSD", condition: { exists: "errPrefix" }, dsn: "${HLQ}.${errPrefix}.SYSXMLSD.XML", options: "tracks space(200,40) dsorg(PS) blksize(27998) lrecl(16383) recfm(v,b) new keep" }
+
+
+      # Link-Edit step
+      - step: linkEdit
+        type: mvs
+        pgm: IEWL
+        parm: ${linkEditParms}
+        condition: ${doLinkEdit}
+        maxRC: 0
+        dds:
+          - { name: "SYSLIN", dsn: "${HLQ}.COBOL.OBJ(${MEMBER})", options: "shr" }
+          - { name: "SYSLMOD", dsn: "${HLQ}.COBOL.LOAD(${MEMBER})", options: "shr", output: true, deployType: "LOAD", scan: "${scanLoadModule}" }
+          - { name: "SYSPRINT", log: "${LOGS}/${STEP}-${FILE_NAME}.log", logEncoding: "${LOG_ENCODING}", options: "cyl space(5,5) unit(vio) blksize(133) lrecl(133) recfm(f,b) new" }
+          - { name: "SYSUT1", options: "cyl space(5,5) unit(vio) blksize(80) lrecl(80) recfm(f,b) new" }
+          - { name: "RESLIB", condition: { exists: RESLIB }, options: "shr" }
+          - { name: "SYSLIB", dsn: "${HLQ}.COBOL.OBJ", options: "shr" }
+          - {                 dsn: "${SCEELKED}", options: "shr" }
+          - {                 dsn: "${SDFHLOAD}", condition: "${IS_CICS}", options: "shr" }
+          - {                 dsn: "SYS4.CICS.V6R1.SDFHLOAD", condition: "${IS_CICS}", options: "shr" }
+          - {                 dsn: "${SDSNLOAD}", condition: "${IS_SQL}", options: "shr" }

@@ -1,0 +1,145 @@
+#
+# Licensed materials - Property of IBM
+# 5655-AC5 Copyright IBM Corp. 2025
+# All rights reserved
+# US Government users restricted rights  -  Use, duplication or
+# disclosure restricted by GSA ADP schedule contract with IBM Corp.
+#
+####################################
+# C/C++ language configuration
+#################################### 
+
+version: 1.0.2
+tasks:
+  # C/C++ Language task
+  - language: C
+
+    # source file association patterns
+    sources:
+      - "**.c"
+      - "**.C"
+      #- "**.cpp"            # Victor added
+      #- "**.CPP"            # Victor added
+      #- "**lnkcpp"
+      
+    # overridable variables
+    variables:
+      # conditional variable builds compile parameters i.e CICS,SQL
+      - name: compileParms
+        #value: "/CXX XPLINK LSEARCH((.H)=(LIB(DD:UH)),(.HPP)=(LIB(DD:UHPP))) LIST"       # Victor added LIST to get compile log.
+        #value: "/CXX NOMAXM NODIGRAPH EXPMAC NOEXPORTALL NOANSIALIAS INLINE(NOAUTO,REPORT,,) MEMORY NOOFFSET FLAG(I) ATTRIBUTE NOOPTIMIZE SOURCE LIST TUNE(6) ARCH(6) XREF INFO(EXT,PAR,POR,REA,RET,TRD) GOFF GONUMBER LONGNAME LANGLVL(EXTENDED,LONGLONG) SSCOMM NOXPLINK TARGET(LE,ZOSV2R2) HALTON(CCN3304,CCN3438,CCN3412) SEARCH(//'CEE.SCEEH.+',//'CBC.SCLBH.+') LSEARCH((.H)=(LIB(DD:UH)),(.HPP)=(LIB(DD:UHPP))) DEBUG(FORMAT(DWARF),LEVEL(0))"
+        #value: "LIS NOMAXM OF SO SS XR LO DLL OPT TARGET(LE,ZOSV1R13)"
+        value: "LIS NOMAXM OF SO SS XR LO DLL OPT TARGET(LE,ZOSV1R13)"
+        #value: "/CXX XPLINK LIST"
+        #value: "MAXMEM(1500000) NODEBUG NODIGRAPH EXPMAC NOEXPORTALL NOANSIALIAS INLINE(NOAUTO,REPORT,,)   MEMORY NOOFFSET FLAG(I) ATTRIBUTE OPTIMIZE(2) SOURCE LIST NOTEST(NOHOOK) TUNE(6) ARCH(6) XREF INFO(EXT,PAR,POR,REA,RET,TRD) GOFF GONUMBER LONGNAME LANGLVL(EXTENDED,LONGLONG) SSCOMM NOXPLINK TARGET(LE,ZOSV2R2) HALTON(CCN3304,CCN3438,CCN3412) SEARCH(//'CEE.SCEEH.+',//'CBC.SCLBH.+') LSEARCH((.H)=(LIB(DD:UH)),(.HPP)=(LIB(DD:UHPP)))"   
+      # flag to perform linkedit
+      - name: doLinkEdit
+        value: true
+        
+      # default link edit parameters
+      - name: linkEditParms
+        #value: AMODE=31,MAP,RENT,DYNAM=DLL,CASE=MIXED
+        #value: LIST,LET,MAP,AMODE=31,SIZE=(742K,262K)
+        #value: LIST=ALL,LET,MAP,XREF,TEST,RENT,CALL,DYNAM(DLL),CASE=MIXED,AMODE=31
+        value: "LIST,LET,MAP,AMODE=31,SIZE=(742K,262K)"
+        
+        
+      # default dependency search path for single repository build
+      - name: dependencySearchPath
+        #value: search:${WORKSPACE}/?path=${APP_DIR_NAME}/**.hpp;{MEMBER}.lnkcpp
+        value: search:${WORKSPACE}/?path=${APP_DIR_NAME}/**.h        
+        #value: search:${workspace}/?path=*/.hpp
+
+    # datasets that need to be created / validated for this language configuration
+    datasets:
+      - name: ${HLQ}.C
+        options: cyl space(1,5) lrecl(1024) dsorg(PO) recfm(V,B) dsntype(library)
+      - name: ${HLQ}.H
+        options: cyl space(1,5) lrecl(1024) dsorg(PO) recfm(V,B) dsntype(library)
+      - name: ${HLQ}.OBJ
+        options: cyl space(1,5) lrecl(80) dsorg(PO) recfm(F,B) dsntype(library)
+      - name: ${HLQ}.LCTL
+        options: "cyl space(1,1) lrecl(80) dsorg(PO) recfm(F,B) dsntype(library)"
+      - name: ${HLQ}.LOAD
+        options: cyl space(1,5) dsorg(PO) recfm(U) blksize(32760) dsntype(library)
+
+    # list of steps to execute for each program processed by this language configuration
+    steps:
+    
+      # Copy build file and dependency files to data sets
+      - step: copySrc
+        type: copy
+        source: ${FILE_PATH}
+        target: //'${HLQ}.C(${MEMBER})'
+        dependencyCopy:
+          - search: ${dependencySearchPath}
+            mappings:
+              #- source: "*/.hpp"
+              - source: "*/.h"
+                dataset: ${HLQ}.H
+
+      #- step: copySrc
+        #type: copy
+        #source: ${FILE_PATH}
+        #target: //'${HLQ}.LNKCPP(${MEMBER})'
+
+      #- step: copySrc
+        #type: copy
+        #source: ${FILE}
+        #condition: ${FILE_EXT} == "lnkcpp"
+        #target: //'${HLQ}.LNKCPP(${MEMBER})'
+        #copyMode: TEXT
+        #deployType: LNKCPP
+      
+
+      # C compile step          
+      - step: compile
+        type: mvs
+        pgm: CCNDRVR
+        parm: ${compileParms}
+        maxRC: 4
+        dds:
+          #- { name: "TASKLIB", dsn: "SYS1.CBC.SCCNCMP", options: "shr" }
+          - { name: "TASKLIB",dsn: "${SCEERUN2}", options: "shr" }
+          - {                  dsn: "${SCCNCMP}", options: "shr" }
+          - {                  dsn: "${SCEERUN}", options: "shr" }
+          - { name: "SYSLIB", dsn: "SYS1.CEE.SCEEH.H", options: "shr" }
+          - {                 dsn: "SYS1.CEE.SCEEH.SYS.H", options: "shr" }
+          - {                 dsn: "SYS1.SIEAHDR.H", options: "shr" }
+          - {                 dsn: "${HLQ}.H", options: "shr" }
+          #- { name: "SYSLIB", dsn: "VLM.C1.CENTRL.PRODHPP", options: "shr" }
+          #- {  name: "SYSLIB", dsn: "VLM.C1.CENTRL.PRODHPP", options: "shr" }
+          #- { name: "UHPP", dsn: "VLM.C1.DUMMY.SOURCEV", options: "shr" }
+          #- {            dsn: "SYS1.CSF.SCSFSTUB", options: "shr" }
+          #- {            dsn: "VLM.C1.CENTRL.PRODHPP", options: "shr" }
+          #- {            dsn: "VLM.C1PA.PRODHPP", options: "shr" }
+          #- {            dsn: "VLM.C1B2.PRODHPP", options: "shr" }
+          #- {            dsn: "VLM.C1.CASAPL.PRODHPP", options: "shr" }
+          #- {            dsn: "VLM.C1.CENTRL.STGHPP", options: "shr" }
+          #- { name: "UH", dsn: "VLM.C1.DUMMY.SOURCEV", options: "shr" }
+          - {          dsn: "SYS1.CSF.SCSFSTUB", options: "shr" }
+          - {            dsn: "VLM.C1.CENTRL.PRODH", options: "shr" }
+          - {          dsn: "VLM.C1PA.PRODH", options: "shr" }
+          - {          dsn: "VLM.C1PA.STGH", options: "shr" }
+          - {            dsn: "VLM.C1B2.PRODH", options: "shr" }
+          #- {          dsn: "VLM.C1.CENTRL.PRODH", options: "shr" }
+          - {          dsn: "VLM.C1.CASAPL.PRODH", options: "shr" }
+          - { name: "SYSIN", dsn: "${HLQ}.C(${MEMBER})", options: "shr" }
+          - { name: "SYSLIN", dsn: "${HLQ}.OBJ(${MEMBER})", options: "shr", output: true }
+          #- {                 dsn: "${SCLBHH}", options: "shr", condition: {exists: "${SCLBHH}"} }
+          - { name: "SYSUT1", options: "cyl space(5,5) unit(vio) blksize(0) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT5", options: "cyl space(5,5) unit(vio) blksize(0) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT6", options: "cyl space(5,5) unit(vio) blksize(0) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT7", options: "cyl space(5,5) unit(vio) blksize(0) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT8", options: "cyl space(5,5) unit(vio) blksize(0) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT9", options: "cyl space(5,5) unit(vio) blksize(0) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT10", options: "cyl space(5,5) unit(vio) blksize(0) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT14", options: "cyl space(5,5) unit(vio) blksize(0) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT16", options: "cyl space(5,5) unit(vio) blksize(0) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSUT17", options: "cyl space(5,5) unit(vio) blksize(0) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSMSGS", dsn: "${SCEEMSGP}", options: "shr" }
+          - { name: "SYSXMSGS", dsn: "${SCEEMSGP}", options: "shr" }
+          - { name: "SYSOUT", options: "cyl space(5,5) unit(vio) blksize(133) lrecl(133) recfm(f,b) new", log: "${LOGS}/${STEP}-${FILE_NAME}.log", logAppend: true }
+      #  Victor changed SYSCPRT from #blksize(80) lrecl(80)
+          - { name: "SYSCPRT", options: "cyl space(5,5) unit(vio) blksize(133) lrecl(133) recfm(f,b) new", log: "${LOGS}/${STEP}-${FILE_NAME}.log", logAppend: true }
+          - { name: "SYSPRINT", options: "cyl space(5,5) unit(vio) blksize(133) lrecl(133) recfm(f,b) new", log: "${LOGS}/${STEP}-${FILE_NAME}.log", logAppend: true }

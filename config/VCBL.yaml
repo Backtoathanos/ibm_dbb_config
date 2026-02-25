@@ -1,0 +1,85 @@
+#
+# VCBL processor override for COBOL.yaml (DB2 and CICS)
+# Steps: 1) DB2 Precompile & CICS trans 2) Pre-link & LNKCTL 3) LNKCICS, LNKDB2 & LNK
+#        4) Get CICS copy card & DB2 Package ID, Create BIND CARDS 5) Run BIND 6) Save all LISTING (CICS, DB2, LNK, DB2BIND, PLNK)
+#
+
+version: 1.0.2
+tasks:
+  - language: Cobol
+    variables:
+      - name: processorName
+        value: VCBL
+    datasets:
+      - name: ${HLQ}.COBOL.PREPROC
+        options: cyl space(1,1) lrecl(80) dsorg(PO) recfm(F,B) dsntype(library)
+      - name: ${HLQ}.COBOL.CICSPUNCH
+        options: cyl space(1,1) lrecl(80) dsorg(PO) recfm(F,B) dsntype(library)
+      - name: ${HLQ}.LINK
+        options: "cyl space(1,1) lrecl(80) dsorg(PO) recfm(F,B) dsntype(library)"
+      - name: ${HLQ}.COBOL.BINDCARDS
+        options: cyl space(1,1) lrecl(80) dsorg(PO) recfm(F,B) dsntype(library)
+    steps:
+      # Step 1: DB2 Precompile and CICS translator (listings -> CICS, DB2)
+      - step: db2Precompile
+        type: mvs
+        pgm: DSNHCOB
+        parm: "PREPROC(DSNHCOB)"
+        maxRC: 4
+        dds:
+          - { name: "SYSIN", dsn: "${HLQ}.COBOL(${MEMBER})", options: "shr", input: true }
+          - { name: "SYSCIN", dsn: "${HLQ}.COBOL.PREPROC(${MEMBER})", options: "shr", output: true }
+          - { name: "DBRMLIB", dsn: "${HLQ}.COBOL.DBRM(${MEMBER})", options: "shr", output: true, deployType: "DBRM" }
+          - { name: "SYSPRINT", log: "${LOGS}/${STEP}-${FILE_NAME}.log", logEncoding: "${LOG_ENCODING}", options: "cyl space(5,5) unit(vio) blksize(133) lrecl(133) recfm(f,b) new" }
+          - { name: "SYSLIB", dsn: "${HLQ}.COPY", options: "shr" }
+          - { dsn: "${SDSNLOAD}", options: "shr" }
+      - step: cicsTranslator
+        type: mvs
+        pgm: DFHECP1
+        maxRC: 4
+        dds:
+          - { name: "SYSIN", dsn: "${HLQ}.COBOL.PREPROC(${MEMBER})", options: "shr", input: true }
+          - { name: "SYSPUNCH", dsn: "${HLQ}.COBOL.CICSPUNCH(${MEMBER})", options: "shr", output: true }
+          - { name: "SYSPRINT", log: "${LOGS}/${STEP}-${FILE_NAME}.log", logEncoding: "${LOG_ENCODING}", options: "cyl space(5,5) unit(vio) blksize(133) lrecl(133) recfm(f,b) new" }
+          - { name: "SYSLIB", dsn: "${HLQ}.COPY", options: "shr" }
+          - { dsn: "${SDFHCOB}", options: "shr" }
+      # Step 2: Pre-link and LNKCTL
+      - step: prelinkLNKCTL
+        type: copy
+        target: //'${HLQ}.LINK(${MEMBER})'
+        dependencyCopy:
+          - search: search:${WORKSPACE}/?path=**/*.lnk
+            mappings:
+              - source: "*/"
+                dataset: ${HLQ}.LINK
+      # Step 3: LNKCICS, LNKDB2, and LNK (link-edit; listing -> LNK)
+      - step: linkEdit
+        type: mvs
+        pgm: IEWL
+        parm: ${linkEditParms}
+        maxRC: 0
+        dds:
+          - { name: "SYSLIN", dsn: "${HLQ}.LINK(${MEMBER})", options: "shr" }
+          - { name: "SYSLMOD", dsn: "${HLQ}.COBOL.LOAD(${MEMBER})", options: "shr", output: true, deployType: "LOAD", scan: "${scanLoadModule}" }
+          - { name: "SYSPRINT", log: "${LOGS}/${STEP}-${FILE_NAME}.log", logEncoding: "${LOG_ENCODING}", options: "cyl space(5,5) unit(vio) blksize(133) lrecl(133) recfm(f,b) new" }
+          - { name: "SYSUT1", options: "cyl space(5,5) unit(vio) blksize(80) lrecl(80) recfm(f,b) new" }
+          - { name: "SYSLIB", dsn: "${HLQ}.COBOL.OBJ", options: "shr" }
+          - { dsn: "${SCEELKED}", options: "shr" }
+          - { dsn: "${SDFHLOAD}", options: "shr" }
+          - { dsn: "${SDSNLOAD}", options: "shr" }
+      # Step 4: Get CICS new Copy card & DB2 Package ID, Create BIND CARDS (add groovy script or use script path per shop)
+      # - step: createBindCards
+      #   type: task
+      #   script: groovy/CreateBindCards.groovy
+      # Uncomment and set script path when CreateBindCards.groovy exists; script writes BIND cards to ${HLQ}.COBOL.BINDCARDS(${MEMBER}).
+      # Step 5: Run BIND (listing -> DB2BIND)
+      - step: runBind
+        type: mvs
+        pgm: DSN
+        parm: "SUB(DSN)"
+        maxRC: 4
+        dds:
+          - { name: "SYSIN", dsn: "${HLQ}.COBOL.BINDCARDS(${MEMBER})", options: "shr", input: true }
+          - { name: "SYSPRINT", log: "${LOGS}/${STEP}-${FILE_NAME}.log", logEncoding: "${LOG_ENCODING}", options: "cyl space(5,5) unit(vio) blksize(133) lrecl(133) recfm(f,b) new" }
+          - { dsn: "${SDSNLOAD}", options: "shr" }
+      # Step 6: All listings saved via log: above (CICS=cicsTranslator-*.log, DB2=db2Precompile-*.log, LNK=linkEdit-*.log, DB2BIND=runBind-*.log, PLNK=prelinkLNKCTL if applicable). Archive ${LOGS} in CI.

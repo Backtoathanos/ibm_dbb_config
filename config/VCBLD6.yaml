@@ -1,0 +1,11 @@
+#
+# VCBLD6 processor override for COBOL.yaml
+# No additional steps per requirements; minimal override for future use.
+#
+
+version: 1.0.2
+tasks:
+  - language: Cobol
+    variables:
+      - name: processorName
+        value: VCBLD6

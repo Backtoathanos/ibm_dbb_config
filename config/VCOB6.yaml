@@ -1,0 +1,11 @@
+#
+# VCOB6 processor override for COBOL.yaml
+# Steps: Create listing and save listing (base compile + linkEdit SYSPRINT logs).
+#
+
+version: 1.0.2
+tasks:
+  - language: Cobol
+    variables:
+      - name: processorName
+        value: VCOB6
