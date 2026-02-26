@@ -6,7 +6,9 @@
 # disclosure restricted by GSA ADP schedule contract with IBM Corp.
 #
 ####################################
-# Assembler language configuration
+# Assembler language configuration (VASM / ASSEMBER.yaml)
+# Step to Add per requirements: 1. Create listing and save listing.
+# Listings are written via SYSPRINT -> ${LOGS}/${STEP}-${FILE_NAME}.log for SQLTranslator, CICSTranslator, assembler, linkEdit; archive ${LOGS} in CI.
 ####################################
 
 version: 1.0.2
@@ -107,6 +109,10 @@ tasks:
       # flag to use ASMAOPTS
       - name: isAsmaOptionsFile
         value: false
+
+      # Processor name (VASM) for requirements traceability; Step to Add: Create listing and save listing.
+      - name: processorName
+        value: VASM
 
     # datasets that need to be created / validated for this language configuration
     datasets:
